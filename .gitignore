@@ -1,0 +1,4 @@
+.gitignorenode_modules/
+.env
+.env.local
+*.log
