@@ -1,30 +1,34 @@
-const { HfInference } = require('@huggingface/inference');
+const { OpenAI } = require('openai');
 
 class AIAnalysisService {
     constructor() {
-        this.client = new HfInference(process.env.HUGGINGFACE_TOKEN);
+        // ✅ 使用 POE API
+        this.client = new OpenAI({
+            apiKey: process.env.POE_API_KEY,
+            baseURL: "https://api.poe.com/v1",
+        });
         
-        // ✅ 使用支援 conversational 嘅免費模型
+        // ✅ 使用 Claude 3.5 Sonnet（主力）+ GPT-4o（備用）
         this.models = [
-            'meta-llama/Meta-Llama-3-8B-Instruct',
-            'mistralai/Mistral-7B-Instruct-v0.2',
-            'microsoft/Phi-3-mini-4k-instruct'
+            'claude-3.5-sonnet',    // 主力模型
+            'gpt-4o',               // 備用模型（如果 quota 用完）
+            'claude-3-opus'         // 深度分析備用
         ];
         
         this.currentModel = this.models[0];
         
-        if (!process.env.HUGGINGFACE_TOKEN) {
-            console.warn('⚠️ Warning: HUGGINGFACE_TOKEN not set');
+        if (!process.env.POE_API_KEY) {
+            console.warn('⚠️ Warning: POE_API_KEY not set');
         } else {
-            console.log('✅ AI Service initialized with Hugging Face');
+            console.log(`✅ AI Service initialized with POE API - Model: ${this.currentModel}`);
         }
     }
 
     /**
      * 單股分析
      */
-async analyzeSingleStock(stockData, customPrompt = null) {
-    const prompt = customPrompt || this.buildSingleStockPrompt(stockData);
+    async analyzeSingleStock(stockData, customPrompt = null) {
+        const prompt = customPrompt || this.buildSingleStockPrompt(stockData);
         
         try {
             let response;
@@ -33,7 +37,7 @@ async analyzeSingleStock(stockData, customPrompt = null) {
             // 嘗試主力模型
             try {
                 console.log(`🤖 Trying primary model: ${this.currentModel}`);
-                response = await this.callModelConversational(this.currentModel, prompt);
+                response = await this.callPOEModel(this.currentModel, prompt);
                 console.log(`✅ Primary model succeeded: ${this.currentModel}`);
             } catch (error) {
                 console.warn(`⚠️ ${this.currentModel} failed (${error.message}), trying backup...`);
@@ -41,14 +45,15 @@ async analyzeSingleStock(stockData, customPrompt = null) {
                 // 嘗試備用模型
                 modelUsed = this.models[1];
                 console.log(`🤖 Trying backup model: ${modelUsed}`);
-                response = await this.callModelConversational(modelUsed, prompt);
+                response = await this.callPOEModel(modelUsed, prompt);
                 console.log(`✅ Backup model succeeded: ${modelUsed}`);
             }
 
             return {
                 analysis: this.cleanResponse(response),
                 timestamp: new Date().toISOString(),
-                model: modelUsed
+                model: modelUsed,
+                provider: 'POE API'
             };
         } catch (error) {
             console.error('❌ AI Analysis error:', error.message);
@@ -58,7 +63,8 @@ async analyzeSingleStock(stockData, customPrompt = null) {
             return {
                 analysis: this.getStaticAnalysis(stockData),
                 timestamp: new Date().toISOString(),
-                model: 'static-fallback'
+                model: 'static-fallback',
+                provider: 'Local'
             };
         }
     }
@@ -75,20 +81,21 @@ async analyzeSingleStock(stockData, customPrompt = null) {
             
             try {
                 console.log(`🤖 Trying primary model: ${this.currentModel}`);
-                response = await this.callModelConversational(this.currentModel, prompt);
+                response = await this.callPOEModel(this.currentModel, prompt);
                 console.log(`✅ Primary model succeeded: ${this.currentModel}`);
             } catch (error) {
                 console.warn(`⚠️ ${this.currentModel} failed, trying backup...`);
                 modelUsed = this.models[1];
                 console.log(`🤖 Trying backup model: ${modelUsed}`);
-                response = await this.callModelConversational(modelUsed, prompt);
+                response = await this.callPOEModel(modelUsed, prompt);
                 console.log(`✅ Backup model succeeded: ${modelUsed}`);
             }
 
             return {
                 analysis: this.cleanResponse(response),
                 timestamp: new Date().toISOString(),
-                model: modelUsed
+                model: modelUsed,
+                provider: 'POE API'
             };
         } catch (error) {
             console.error('❌ AI Analysis error:', error.message);
@@ -97,26 +104,26 @@ async analyzeSingleStock(stockData, customPrompt = null) {
             return {
                 analysis: this.getStaticPortfolioAnalysis(portfolioData),
                 timestamp: new Date().toISOString(),
-                model: 'static-fallback'
+                model: 'static-fallback',
+                provider: 'Local'
             };
         }
     }
 
     /**
-     * ✅ 使用 Conversational API（支援度更高）
+     * ✅ POE API 調用（使用 OpenAI SDK）
      */
-    async callModelConversational(modelId, userMessage) {
+    async callPOEModel(modelId, userMessage) {
         try {
-            const systemPrompt = '你是一位資深股票分析師，擅長用貼地、人性化嘅廣東話分析股票。請用繁體中文回覆。';
+            const systemPrompt = '你是一位資深股票分析師，擅長用貼地、人性化嘅廣東話分析股票。請用繁體中文回覆，並提供具體、可執行嘅投資建議。';
             
-            // ✅ 使用 chatCompletion API（支援 conversational task）
-            const response = await this.client.chatCompletion({
+            const response = await this.client.chat.completions.create({
                 model: modelId,
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userMessage }
                 ],
-                max_tokens: 2500,
+                max_tokens: 3000,
                 temperature: 0.7,
                 top_p: 0.95
             });
@@ -125,9 +132,17 @@ async analyzeSingleStock(stockData, customPrompt = null) {
                 throw new Error('No response from model');
             }
 
-            return response.choices[0].message.content;
+            const content = response.choices[0].message.content;
+            console.log(`📊 Model ${modelId} response length: ${content.length} chars`);
+            
+            return content;
         } catch (error) {
             console.error(`❌ Model ${modelId} failed:`, error.message);
+            
+            if (error.response) {
+                console.error('API Response Error:', error.response.status, error.response.data);
+            }
+            
             throw error;
         }
     }
@@ -295,7 +310,6 @@ async analyzeSingleStock(stockData, customPrompt = null) {
         analysis += `## 🎯 配置建議\n`;
         analysis += `組合有 ${holdings.length} 隻股票，分散度${holdings.length >= 5 ? '良好' : holdings.length >= 3 ? '中等，可以增加' : '不足，建議增加到 5-8 隻'}。\n`;
         
-        // 計算最大持倉佔比
         const maxWeight = Math.max(...holdings.map(h => {
             const value = h.quantity * h.current_price;
             return (value / totalValue) * 100;

@@ -6,12 +6,13 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? [process.env.FRONTEND_URL || 'https://your-app.vercel.app']
-    : ['http://localhost:3000', 'http://localhost:5173'],
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:5001',  // ← 加呢行
+    'https://stock-analysis-frontend-gules.vercel.app'
+  ],
   credentials: true
 }));
-
 
 app.use(express.json());
 
