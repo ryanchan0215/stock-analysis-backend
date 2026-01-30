@@ -38,70 +38,74 @@ router.get('/search', async (req, res) => {
  * GET /api/stocks/quote/:symbol
  * 獲取股票報價（帶完整錯誤處理）
  */
-router.get('/quote/:symbol', async (req, res) => {
+router.get('/:symbol', async (req, res) => {
     try {
         const { symbol } = req.params;
+        const upperSymbol = symbol.toUpperCase();
+        
+        console.log(`\n========== 🎯 API Request: /api/stocks/${upperSymbol} ==========`);
 
-        // 獲取數據（帶錯誤處理）
+        // Fetch all data
         const [quote, profile, technical] = await Promise.all([
-            stockService.getQuote(symbol).catch(err => {
-                console.error(`Quote error for ${symbol}:`, err.message);
-                throw new Error(`無法獲取 ${symbol} 的報價數據`);
-            }),
-            stockService.getProfile(symbol).catch(err => {
-                console.warn(`Profile error for ${symbol}:`, err.message);
-                return null; // 允許失敗
-            }),
-            stockService.getTechnicalIndicators(symbol).catch(err => {
-                console.warn(`Technical error for ${symbol}:`, err.message);
-                // 返回默認值
-                return {
-                    rsi: null,
-                    rsiLevel: { level: '數據不足', signal: '無法計算' },
-                    ma50: null,
-                    ma200: null,
-                    trend: '數據不足',
-                    volatility: null,
-                    dataPoints: 0,
-                    macd: null,
-                    bollingerBands: null,
-                    signals: [],
-                    error: '技術指標計算失敗'
-                };
-            })
+            stockService.getQuote(upperSymbol),
+            stockService.getProfile(upperSymbol),
+            stockService.getTechnicalIndicators(upperSymbol)
         ]);
 
-        // 驗證必要數據
-        if (!quote || quote.currentPrice === 0) {
-            return res.status(404).json({
-                success: false,
-                error: `找不到股票代碼 ${symbol.toUpperCase()}，請確認代碼是否正確`
-            });
-        }
+        console.log(`📦 Data fetched:`);
+        console.log(`   Quote:`, quote ? '✅' : '❌');
+        console.log(`   Profile:`, profile ? '✅' : '❌');
+        console.log(`   Technical:`, technical ? '✅' : '❌');
 
-        res.json({
+        // ✅ 確保 profile 有 fallback 值
+        const safeProfile = {
+            exchange: profile?.exchange || 'N/A',
+            finnhubIndustry: profile?.finnhubIndustry || 'N/A',
+            marketCapitalization: profile?.marketCapitalization || 0,
+            country: profile?.country || 'N/A',
+            currency: profile?.currency || 'USD',
+            weburl: profile?.weburl || ''
+        };
+
+        console.log(`📤 Sending profile:`, safeProfile);
+
+        const response = {
             success: true,
             data: {
-                symbol: symbol.toUpperCase(),
-                quote,
-                profile: profile || {
-                    name: symbol.toUpperCase(),
-                    country: 'N/A',
-                    currency: 'USD',
-                    exchange: 'N/A',
-                    finnhubIndustry: 'N/A',
-                    marketCapitalization: 0,
-                    weburl: ''
+                symbol: quote.symbol,
+                name: profile?.name || upperSymbol,
+                quote: {
+                    currentPrice: quote.currentPrice,
+                    highPrice: quote.high,
+                    lowPrice: quote.low,
+                    openPrice: quote.open,
+                    previousClose: quote.previousClose,
+                    change: quote.change,
+                    changePercent: quote.changePercent,
+                    timestamp: quote.timestamp
                 },
-                technical
+                profile: safeProfile,  // ✅ 確保包含 profile
+                technical: {
+                    rsi: technical.rsi,
+                    ma50: technical.ma50,
+                    ma200: technical.ma200,
+                    trend: technical.trend,
+                    volatility: technical.volatility,
+                    macd: technical.macd,
+                    bollingerBands: technical.bollingerBands,
+                    signals: technical.signals
+                }
             }
-        });
+        };
+
+        console.log(`========== ✅ API Response Complete ==========\n`);
+        res.json(response);
 
     } catch (error) {
-        console.error('❌ Quote error:', error);
+        console.error(`❌ Error in /api/stocks/:symbol:`, error);
         res.status(500).json({
             success: false,
-            error: error.message || '獲取股票數據失敗，請稍後再試'
+            error: error.message
         });
     }
 });

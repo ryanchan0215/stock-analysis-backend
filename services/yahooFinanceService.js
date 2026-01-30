@@ -128,46 +128,73 @@ class YahooFinanceService {
     /**
      * 獲取公司資料（改良版 - 三重備援）
      */
-    async getCompanyProfile(symbol) {
+  async getCompanyProfile(symbol) {
+    try {
+        console.log(`\n========== 🏢 Fetching Profile: ${symbol} ==========`);
+
+        // ✅ 方法 1：嘗試 quoteSummary API
         try {
-            console.log(`🏢 Fetching company profile for ${symbol}...`);
+            const url = `${this.baseUrl}/v10/finance/quoteSummary/${symbol}`;
+            console.log(`🔍 [Method 1] Trying quoteSummary for ${symbol}...`);
+            
+            const response = await axios.get(url, {
+                params: {
+                    modules: 'assetProfile,price,summaryProfile,quoteType'
+                },
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'application/json',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Referer': 'https://finance.yahoo.com/',
+                    'Origin': 'https://finance.yahoo.com'
+                },
+                timeout: 15000
+            });
 
-            // ✅ 方法 1：嘗試 quoteSummary API（最詳細但可能 401）
-            try {
-                const url = `${this.baseUrl}/v10/finance/quoteSummary/${symbol}`;
-                const response = await axios.get(url, {
-                    params: {
-                        modules: 'assetProfile,price,summaryProfile,quoteType'
-                    },
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                        'Accept': 'application/json',
-                        'Accept-Language': 'en-US,en;q=0.9'
-                    },
-                    timeout: 10000
-                });
-
-                const result = response.data.quoteSummary.result[0];
-                const profile = result.assetProfile || result.summaryProfile || {};
-                const price = result.price || {};
-                const quoteType = result.quoteType || {};
-
-                console.log(`✅ Got company profile for ${symbol} (quoteSummary)`);
-
-                return {
-                    name: price.shortName || price.longName || quoteType.longName || symbol,
-                    country: profile.country || 'N/A',
-                    currency: price.currency || 'USD',
-                    exchange: quoteType.exchange || price.exchangeName || 'N/A',
-                    finnhubIndustry: profile.industry || profile.sector || 'N/A',
-                    marketCapitalization: price.marketCap ? price.marketCap / 1e9 : 0,
-                    weburl: profile.website || ''
-                };
-            } catch (quoteSummaryError) {
-                console.warn(`⚠️ quoteSummary failed for ${symbol} (${quoteSummaryError.response?.status}), trying chart API...`);
+            // ✅ 驗證數據結構
+            if (!response.data || !response.data.quoteSummary || !response.data.quoteSummary.result) {
+                throw new Error('Invalid quoteSummary response structure');
             }
 
-            // ✅ 方法 2：從 chart API 獲取基本資料
+            const result = response.data.quoteSummary.result[0];
+            
+            if (!result) {
+                throw new Error('quoteSummary returned empty result');
+            }
+
+            const profile = result.assetProfile || result.summaryProfile || {};
+            const price = result.price || {};
+            const quoteType = result.quoteType || {};
+
+            const profileData = {
+                name: price.shortName || price.longName || quoteType.longName || symbol,
+                country: profile.country || 'N/A',
+                currency: price.currency || 'USD',
+                exchange: quoteType.exchange || price.exchangeName || 'N/A',
+                finnhubIndustry: profile.industry || profile.sector || 'N/A',
+                marketCapitalization: price.marketCap ? price.marketCap / 1e9 : 0,
+                weburl: profile.website || ''
+            };
+
+            console.log(`✅ [Method 1] quoteSummary success for ${symbol}:`, profileData);
+            console.log(`========== ✅ Profile Complete: ${symbol} ==========\n`);
+            
+            return profileData;
+
+        } catch (quoteSummaryError) {
+            const status = quoteSummaryError.response?.status;
+            const statusText = quoteSummaryError.response?.statusText;
+            
+            console.warn(`⚠️ [Method 1] quoteSummary failed for ${symbol}:`);
+            console.warn(`   Status: ${status} ${statusText}`);
+            console.warn(`   Error: ${quoteSummaryError.message}`);
+            console.warn(`   Trying Method 2...`);
+        }
+
+        // ✅ 方法 2：從 chart API 獲取基本資料
+        try {
+            console.log(`🔍 [Method 2] Trying chart API for ${symbol}...`);
+            
             const chartUrl = `${this.baseUrl}/v8/finance/chart/${symbol}`;
             const chartResponse = await axios.get(chartUrl, {
                 params: {
@@ -180,11 +207,17 @@ class YahooFinanceService {
                 timeout: 10000
             });
 
+            if (!chartResponse.data || !chartResponse.data.chart || !chartResponse.data.chart.result) {
+                throw new Error('Invalid chart response structure');
+            }
+
             const meta = chartResponse.data.chart.result[0].meta;
 
-            console.log(`✅ Got basic profile for ${symbol} (chart API)`);
+            if (!meta) {
+                throw new Error('chart API returned empty meta');
+            }
 
-            return {
+            const profileData = {
                 name: meta.longName || meta.shortName || symbol,
                 country: this.guessCountryFromExchange(meta.exchangeName),
                 currency: meta.currency || 'USD',
@@ -194,22 +227,49 @@ class YahooFinanceService {
                 weburl: ''
             };
 
-        } catch (error) {
-            console.error(`❌ All methods failed for ${symbol}:`, error.message);
-            
-            // ✅ 方法 3：返回基本資料（最後備援）
-            return {
-                name: symbol,
-                country: 'N/A',
-                currency: 'USD',
-                exchange: 'N/A',
-                finnhubIndustry: 'N/A',
-                marketCapitalization: 0,
-                weburl: ''
-            };
-        }
-    }
+            console.log(`✅ [Method 2] chart API success for ${symbol}:`, profileData);
+            console.log(`⚠️ Note: Limited data (no industry/marketCap/website)`);
+            console.log(`========== ✅ Profile Complete: ${symbol} ==========\n`);
 
+            return profileData;
+
+        } catch (chartError) {
+            console.error(`❌ [Method 2] chart API failed for ${symbol}:`, chartError.message);
+        }
+
+        // ✅ 方法 3：返回 fallback 資料
+        console.warn(`⚠️ All methods failed for ${symbol}, using fallback`);
+        
+        const fallbackData = {
+            name: symbol,
+            country: 'N/A',
+            currency: 'USD',
+            exchange: 'N/A',
+            finnhubIndustry: 'N/A',
+            marketCapitalization: 0,
+            weburl: ''
+        };
+
+        console.log(`🔄 [Fallback] Using basic data for ${symbol}:`, fallbackData);
+        console.log(`========== ⚠️ Profile Incomplete: ${symbol} ==========\n`);
+
+        return fallbackData;
+
+    } catch (error) {
+        console.error(`❌ Unexpected error in getCompanyProfile for ${symbol}:`, error);
+        
+        // 最終 fallback
+        return {
+            name: symbol,
+            country: 'N/A',
+            currency: 'USD',
+            exchange: 'N/A',
+            finnhubIndustry: 'N/A',
+            marketCapitalization: 0,
+            weburl: ''
+        };
+    }
+}
     /**
      * 根據交易所推測國家
      */

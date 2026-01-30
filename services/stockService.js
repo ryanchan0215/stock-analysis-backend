@@ -23,45 +23,75 @@ class StockService {
     /**
      * 獲取公司資料（優先用 Yahoo Finance）
      */
-    async getProfile(symbol) {
+async getProfile(symbol) {
+    try {
+        console.log(`\n========== 📊 stockService.getProfile(${symbol}) ==========`);
+        
+        // 🎯 1. 嘗試 Yahoo Finance
+        console.log(`🔍 Trying Yahoo Finance for ${symbol}...`);
+        const profile = await yahooFinanceService.getCompanyProfile(symbol);
+        
+        console.log(`📦 Yahoo returned:`, profile);
+        
+        // ✅ 檢查 profile 係咪有效（唔只係 fallback）
+        const isValidProfile = profile.name !== symbol || 
+                               profile.exchange !== 'N/A' || 
+                               profile.finnhubIndustry !== 'N/A';
+
+        if (isValidProfile) {
+            console.log(`✅ Using Yahoo profile for ${symbol}`);
+            console.log(`========== ✅ stockService Complete ==========\n`);
+            return profile;
+        }
+        
+        console.warn(`⚠️ Yahoo profile incomplete for ${symbol}, trying Finnhub...`);
+        
+        // 🎯 2. 嘗試 Finnhub
         try {
-            const profile = await yahooFinanceService.getCompanyProfile(symbol);
-            if (profile && profile.name !== symbol) {
-                return profile;
-            }
-            
-            // 如果 Yahoo 無資料，試 Finnhub
-            console.warn(`⚠️ Yahoo profile incomplete for ${symbol}, trying Finnhub...`);
             const finnhubProfile = await finnhubService.getCompanyProfile(symbol);
+            console.log(`📦 Finnhub returned:`, finnhubProfile);
             
             if (finnhubProfile && Object.keys(finnhubProfile).length > 0) {
-                return finnhubProfile;
+                // 格式化 Finnhub 數據
+                const formattedProfile = {
+                    name: finnhubProfile.name || symbol,
+                    country: finnhubProfile.country || 'N/A',
+                    currency: finnhubProfile.currency || 'USD',
+                    exchange: finnhubProfile.exchange || 'N/A',
+                    finnhubIndustry: finnhubProfile.finnhubIndustry || 'N/A',
+                    marketCapitalization: finnhubProfile.marketCapitalization || 0,
+                    weburl: finnhubProfile.weburl || ''
+                };
+                
+                console.log(`✅ Using Finnhub profile for ${symbol}`);
+                console.log(`========== ✅ stockService Complete ==========\n`);
+                return formattedProfile;
             }
-
-            // 如果都失敗，返回基本資料
-            return profile || {
-                name: symbol,
-                country: 'N/A',
-                currency: 'USD',
-                exchange: 'N/A',
-                finnhubIndustry: 'N/A',
-                marketCapitalization: 0,
-                weburl: ''
-            };
-
-        } catch (error) {
-            console.warn(`⚠️ Error getting profile for ${symbol}:`, error.message);
-            return {
-                name: symbol,
-                country: 'N/A',
-                currency: 'USD',
-                exchange: 'N/A',
-                finnhubIndustry: 'N/A',
-                marketCapitalization: 0,
-                weburl: ''
-            };
+        } catch (finnhubError) {
+            console.warn(`⚠️ Finnhub also failed for ${symbol}:`, finnhubError.message);
         }
+
+        // 🎯 3. 如果都失敗，返回 Yahoo 嘅 fallback（至少有基本資料）
+        console.warn(`⚠️ All sources failed, using fallback for ${symbol}`);
+        console.log(`========== ⚠️ stockService Incomplete ==========\n`);
+        
+        return profile;  // Yahoo 嘅 fallback
+
+    } catch (error) {
+        console.error(`❌ Error in stockService.getProfile for ${symbol}:`, error);
+        console.log(`========== ❌ stockService Error ==========\n`);
+        
+        return {
+            name: symbol,
+            country: 'N/A',
+            currency: 'USD',
+            exchange: 'N/A',
+            finnhubIndustry: 'N/A',
+            marketCapitalization: 0,
+            weburl: ''
+        };
     }
+}
 
     /**
      * 獲取股票新聞（優先用 Yahoo Finance）
