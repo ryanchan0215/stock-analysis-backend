@@ -17,10 +17,11 @@ app.use(cors({
 app.use(express.json());
 
 // 健康檢查
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
     res.json({
-        status: 'ok',
+        status: 'healthy',
         timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
         services: {
             supabase: !!process.env.SUPABASE_URL,
             finnhub: !!process.env.FINNHUB_API_KEY,
