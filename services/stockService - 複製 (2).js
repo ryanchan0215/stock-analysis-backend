@@ -20,37 +20,122 @@ class StockService {
         }
     }
 
-    /**
-     * 獲取公司資料（優先用 Yahoo Finance）
+  /**
+     * 獲取公司資料（優先用 Yahoo Finance，缺少欄位補充 Finnhub）
      */
     async getProfile(symbol) {
         try {
-            const profile = await yahooFinanceService.getCompanyProfile(symbol);
-            if (profile && profile.name !== symbol) {
-                return profile;
-            }
+            console.log(`\n========== 📊 [getProfile] ${symbol} ==========`);
             
-            // 如果 Yahoo 無資料，試 Finnhub
-            console.warn(`⚠️ Yahoo profile incomplete for ${symbol}, trying Finnhub...`);
-            const finnhubProfile = await finnhubService.getCompanyProfile(symbol);
+            // 1️⃣ 先拎 Yahoo Finance 數據
+            console.log(`🔍 Step 1: Fetching Yahoo profile...`);
+            const yahooProfile = await yahooFinanceService.getCompanyProfile(symbol);
             
-            if (finnhubProfile && Object.keys(finnhubProfile).length > 0) {
-                return finnhubProfile;
+            console.log(`📦 Yahoo raw response:`, JSON.stringify(yahooProfile, null, 2));
+            
+            // 2️⃣ 詳細檢查每個欄位
+            console.log(`\n📊 Yahoo profile analysis:`);
+            console.log(`   name: ${yahooProfile?.name}`);
+            console.log(`   country: ${yahooProfile?.country}`);
+            console.log(`   currency: ${yahooProfile?.currency}`);
+            console.log(`   exchange: ${yahooProfile?.exchange}`);
+            console.log(`   industry: ${yahooProfile?.industry}`);
+            console.log(`   sector: ${yahooProfile?.sector}`);
+            console.log(`   finnhubIndustry: ${yahooProfile?.finnhubIndustry}`);
+            console.log(`   marketCapitalization: ${yahooProfile?.marketCapitalization}`);
+            console.log(`   weburl: ${yahooProfile?.weburl}`);
+            
+            const hasBasicInfo = yahooProfile && 
+                                yahooProfile.name && 
+                                yahooProfile.name !== symbol;
+            
+            console.log(`\n✅ Has basic info: ${hasBasicInfo}`);
+
+            // 3️⃣ 檢查行業欄位（三個來源）
+            const hasIndustry = !!(yahooProfile?.finnhubIndustry || 
+                                  yahooProfile?.industry || 
+                                  yahooProfile?.sector);
+            
+            const hasMarketCap = yahooProfile?.marketCapitalization && 
+                                yahooProfile.marketCapitalization > 0;
+            
+            console.log(`✅ Has industry: ${hasIndustry}`);
+            console.log(`   - finnhubIndustry: ${!!yahooProfile?.finnhubIndustry}`);
+            console.log(`   - industry: ${!!yahooProfile?.industry}`);
+            console.log(`   - sector: ${!!yahooProfile?.sector}`);
+            console.log(`✅ Has market cap: ${hasMarketCap} (${yahooProfile?.marketCapitalization})`);
+
+            // 4️⃣ 如果 Yahoo 缺少數據，補充 Finnhub
+            let finnhubProfile = null;
+            
+            if (!hasBasicInfo || !hasIndustry || !hasMarketCap) {
+                console.log(`\n🔍 Step 2: Yahoo missing data, trying Finnhub...`);
+                console.log(`   Reason: basicInfo=${hasBasicInfo}, industry=${hasIndustry}, marketCap=${hasMarketCap}`);
+                
+                try {
+                    finnhubProfile = await finnhubService.getCompanyProfile(symbol);
+                    
+                    console.log(`📦 Finnhub raw response:`, JSON.stringify(finnhubProfile, null, 2));
+                    
+                    console.log(`\n📊 Finnhub profile analysis:`);
+                    console.log(`   name: ${finnhubProfile?.name}`);
+                    console.log(`   country: ${finnhubProfile?.country}`);
+                    console.log(`   finnhubIndustry: ${finnhubProfile?.finnhubIndustry}`);
+                    console.log(`   marketCapitalization: ${finnhubProfile?.marketCapitalization}`);
+                    
+                } catch (finnhubError) {
+                    console.error(`❌ Finnhub failed:`, finnhubError.message);
+                }
+            } else {
+                console.log(`\n✅ Yahoo data complete, skipping Finnhub`);
             }
 
-            // 如果都失敗，返回基本資料
-            return profile || {
-                name: symbol,
-                country: 'N/A',
-                currency: 'USD',
-                exchange: 'N/A',
-                finnhubIndustry: 'N/A',
-                marketCapitalization: 0,
-                weburl: ''
+            // 5️⃣ 合併數據（Yahoo 優先，Finnhub 補充）
+            console.log(`\n🔍 Step 3: Merging data...`);
+            
+            const industryValue = yahooProfile?.finnhubIndustry || 
+                                 yahooProfile?.industry || 
+                                 yahooProfile?.sector ||
+                                 finnhubProfile?.finnhubIndustry || 
+                                 'N/A';
+            
+            const marketCapValue = yahooProfile?.marketCapitalization || 
+                                  finnhubProfile?.marketCapitalization || 
+                                  0;
+            
+            console.log(`   Industry sources:`);
+            console.log(`      Yahoo.finnhubIndustry: ${yahooProfile?.finnhubIndustry || 'null'}`);
+            console.log(`      Yahoo.industry: ${yahooProfile?.industry || 'null'}`);
+            console.log(`      Yahoo.sector: ${yahooProfile?.sector || 'null'}`);
+            console.log(`      Finnhub.finnhubIndustry: ${finnhubProfile?.finnhubIndustry || 'null'}`);
+            console.log(`   ➡️ Final industry: ${industryValue}`);
+            
+            console.log(`   Market cap sources:`);
+            console.log(`      Yahoo: ${yahooProfile?.marketCapitalization || 0}`);
+            console.log(`      Finnhub: ${finnhubProfile?.marketCapitalization || 0}`);
+            console.log(`   ➡️ Final market cap: ${marketCapValue}`);
+
+            const mergedProfile = {
+                name: yahooProfile?.name || finnhubProfile?.name || symbol,
+                country: yahooProfile?.country || finnhubProfile?.country || 'N/A',
+                currency: yahooProfile?.currency || finnhubProfile?.currency || 'USD',
+                exchange: yahooProfile?.exchange || finnhubProfile?.exchange || 'N/A',
+                finnhubIndustry: industryValue,
+                marketCapitalization: marketCapValue,
+                weburl: yahooProfile?.weburl || finnhubProfile?.weburl || ''
             };
 
+            console.log(`\n✅ Final merged profile:`);
+            console.log(JSON.stringify(mergedProfile, null, 2));
+            console.log(`========== ✅ [getProfile] Complete ==========\n`);
+
+            return mergedProfile;
+
         } catch (error) {
-            console.warn(`⚠️ Error getting profile for ${symbol}:`, error.message);
+            console.error(`\n❌❌❌ ERROR in getProfile for ${symbol} ❌❌❌`);
+            console.error(`Error message: ${error.message}`);
+            console.error(`Stack trace:`, error.stack);
+            
             return {
                 name: symbol,
                 country: 'N/A',
@@ -62,7 +147,6 @@ class StockService {
             };
         }
     }
-
     /**
      * 獲取股票新聞（優先用 Yahoo Finance）
      */
