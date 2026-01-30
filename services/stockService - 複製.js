@@ -20,63 +20,48 @@ class StockService {
         }
     }
 
-   /**
- * 獲取公司資料（優先用 Yahoo Finance）
- */
-async getProfile(symbol) {
-    try {
-        console.log(`\n========== 📊 [getProfile] ${symbol} ==========`);
-        
-        const profile = await yahooFinanceService.getCompanyProfile(symbol);
-        
-        console.log(`📦 Yahoo returned:`, profile);
-        
-        // ✅ 檢查 Yahoo 係咪返回有效資料
-        if (profile && profile.name !== symbol) {
-            console.log(`✅ Using Yahoo profile for ${symbol}`);
-            return profile;
-        }
-        
-        // 如果 Yahoo 無資料，試 Finnhub
-        console.warn(`⚠️ Yahoo profile incomplete for ${symbol}, trying Finnhub...`);
-        
+    /**
+     * 獲取公司資料（優先用 Yahoo Finance）
+     */
+    async getProfile(symbol) {
         try {
+            const profile = await yahooFinanceService.getCompanyProfile(symbol);
+            if (profile && profile.name !== symbol) {
+                return profile;
+            }
+            
+            // 如果 Yahoo 無資料，試 Finnhub
+            console.warn(`⚠️ Yahoo profile incomplete for ${symbol}, trying Finnhub...`);
             const finnhubProfile = await finnhubService.getCompanyProfile(symbol);
-            console.log(`📦 Finnhub returned:`, finnhubProfile);
             
             if (finnhubProfile && Object.keys(finnhubProfile).length > 0) {
-                console.log(`✅ Using Finnhub profile for ${symbol}`);
                 return finnhubProfile;
             }
-        } catch (finnhubError) {
-            console.warn(`⚠️ Finnhub failed:`, finnhubError.message);
+
+            // 如果都失敗，返回基本資料
+            return profile || {
+                name: symbol,
+                country: 'N/A',
+                currency: 'USD',
+                exchange: 'N/A',
+                finnhubIndustry: 'N/A',
+                marketCapitalization: 0,
+                weburl: ''
+            };
+
+        } catch (error) {
+            console.warn(`⚠️ Error getting profile for ${symbol}:`, error.message);
+            return {
+                name: symbol,
+                country: 'N/A',
+                currency: 'USD',
+                exchange: 'N/A',
+                finnhubIndustry: 'N/A',
+                marketCapitalization: 0,
+                weburl: ''
+            };
         }
-
-        // 如果都失敗，返回基本資料
-        console.warn(`⚠️ Using fallback profile for ${symbol}`);
-        return profile || {
-            name: symbol,
-            country: 'N/A',
-            currency: 'USD',
-            exchange: 'N/A',
-            finnhubIndustry: 'N/A',
-            marketCapitalization: 0,
-            weburl: ''
-        };
-
-    } catch (error) {
-        console.error(`❌ Error in getProfile for ${symbol}:`, error.message);
-        return {
-            name: symbol,
-            country: 'N/A',
-            currency: 'USD',
-            exchange: 'N/A',
-            finnhubIndustry: 'N/A',
-            marketCapitalization: 0,
-            weburl: ''
-        };
     }
-}
 
     /**
      * 獲取股票新聞（優先用 Yahoo Finance）
@@ -136,12 +121,10 @@ async getCandles(symbol, daysBack = 365) {
 
 /**
  * 獲取技術指標（用 Yahoo Finance K 線計算）
- * ✅ 增強錯誤處理，避免拋出錯誤
  */
 async getTechnicalIndicators(symbol) {
     try {
-        console.log(`\n========== 📈 [getTechnicalIndicators] ${symbol} ==========`);
-        console.log(`📊 Calculating technical indicators for ${symbol}...`);
+        console.log(`📈 Calculating technical indicators for ${symbol}...`);
         
         // ✅ 1. 獲取 K 線數據
         const candles = await this.getCandles(symbol, 365);
@@ -186,7 +169,6 @@ async getTechnicalIndicators(symbol) {
 
         console.log(`✅ Technical indicators calculated for ${symbol}`);
         console.log(`   RSI: ${rsi.toFixed(2)}, MACD: ${macd?.macd.toFixed(2)}, Trend: ${trend}`);
-        console.log(`   Signals: ${signals.length} detected`);
 
         return {
             rsi: parseFloat(rsi.toFixed(2)),
@@ -197,6 +179,7 @@ async getTechnicalIndicators(symbol) {
             volatility: parseFloat(volatility.toFixed(2)),
             currentPrice: parseFloat(currentPrice.toFixed(2)),
             dataPoints: closePrices.length,
+            // 新增進階指標
             macd: macd || null,
             bollingerBands: bollingerBands || null,
             signals: signals || []
