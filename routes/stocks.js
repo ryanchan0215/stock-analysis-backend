@@ -136,18 +136,38 @@ router.get('/news/:symbol', async (req, res) => {
 router.get('/candles/:symbol', async (req, res) => {
     try {
         const { symbol } = req.params;
-        const { days = 365 } = req.query; // ✅ 改為 365 天（確保 MA200 有足夠數據）
+        const { days = 365 } = req.query;
 
         console.log(`📊 Fetching ${days} days of candles for ${symbol}...`);
 
-        const candles = await stockService.getCandles(symbol, parseInt(days));
+        // ✅ 安全調用
+        let candles;
+        try {
+            candles = await stockService.getCandles(symbol, parseInt(days));
+        } catch (candleError) {
+            console.error(`❌ Candles fetch failed:`, candleError);
+            return res.status(500).json({
+                success: false,
+                error: `無法獲取 ${symbol} K 線數據：${candleError.message}`
+            });
+        }
+
+        // ✅ 驗證返回數據
+        if (!candles || !candles.close || candles.close.length === 0) {
+            console.error(`❌ Empty candles data for ${symbol}`);
+            return res.status(404).json({
+                success: false,
+                error: `${symbol} 沒有可用的 K 線數據`
+            });
+        }
+
         const closePrices = candles.close;
 
-        if (!closePrices || closePrices.length < 200) {
-            console.warn(`⚠️ Insufficient data: only ${closePrices?.length || 0} days`);
+        if (closePrices.length < 200) {
+            console.warn(`⚠️ Insufficient data: only ${closePrices.length} days`);
             return res.json({
                 success: false,
-                error: `數據不足（需要至少 200 天，目前只有 ${closePrices?.length || 0} 天）`
+                error: `數據不足（需要至少 200 天，目前只有 ${closePrices.length} 天）`
             });
         }
 
@@ -182,7 +202,6 @@ router.get('/candles/:symbol', async (req, res) => {
                 low: parseFloat(candles.low[index].toFixed(2)),
                 close: parseFloat(candles.close[index].toFixed(2)),
                 volume: candles.volume[index],
-                // ✅ 技術指標（不足數據時返回 null）
                 ma50: ma50Index >= 0 ? ma50History[ma50Index] : null,
                 ma200: ma200Index >= 0 ? ma200History[ma200Index] : null,
                 macd: macdIndex >= 0 ? macdHistory[macdIndex].macd : null,
@@ -213,10 +232,10 @@ router.get('/candles/:symbol', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Candles error:', error);
+        console.error('❌ Candles route error:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: error.message || '無法獲取 K 線數據'
         });
     }
 });

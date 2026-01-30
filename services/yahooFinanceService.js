@@ -9,52 +9,76 @@ class YahooFinanceService {
     /**
      * 獲取歷史 K 線數據
      */
-    async getHistoricalData(symbol, daysBack = 365) {
-        try {
-            const period2 = Math.floor(Date.now() / 1000);
-            const period1 = period2 - (daysBack * 24 * 60 * 60);
+   async getHistoricalData(symbol, daysBack = 365) {
+    try {
+        const period2 = Math.floor(Date.now() / 1000);
+        const period1 = period2 - (daysBack * 24 * 60 * 60);
 
-            console.log(`📊 Fetching ${daysBack} days of historical data for ${symbol}...`);
+        console.log(`📊 Fetching ${daysBack} days of historical data for ${symbol}...`);
 
-            const url = `${this.baseUrl}/v8/finance/chart/${symbol}`;
-            const response = await axios.get(url, {
-                params: {
-                    period1,
-                    period2,
-                    interval: '1d',
-                    includeAdjustedClose: true
-                },
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                },
-                timeout: 30000
-            });
+        const url = `${this.baseUrl}/v8/finance/chart/${symbol}`;
+        const response = await axios.get(url, {
+            params: {
+                period1,
+                period2,
+                interval: '1d',
+                includeAdjustedClose: true
+            },
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            timeout: 30000
+        });
 
-            const result = response.data.chart.result[0];
-            
-            if (!result || !result.timestamp) {
-                throw new Error(`No historical data for ${symbol}`);
-            }
-
-            const timestamps = result.timestamp;
-            const quotes = result.indicators.quote[0];
-
-            console.log(`✅ Got ${timestamps.length} days of data for ${symbol}`);
-
-            return {
-                timestamps: timestamps,
-                open: quotes.open.map(v => v || 0),
-                high: quotes.high.map(v => v || 0),
-                low: quotes.low.map(v => v || 0),
-                close: quotes.close.map(v => v || 0),
-                volume: quotes.volume.map(v => v || 0)
-            };
-
-        } catch (error) {
-            console.error(`❌ Error fetching Yahoo historical data for ${symbol}:`, error.message);
-            throw error;
+        // ✅ 檢查返回數據
+        if (!response.data || !response.data.chart) {
+            console.error('❌ Yahoo Finance returned invalid data:', response.data);
+            throw new Error(`Yahoo Finance API 返回無效數據`);
         }
+
+        if (!response.data.chart.result || response.data.chart.result.length === 0) {
+            console.error('❌ Yahoo Finance returned empty result:', response.data.chart);
+            throw new Error(`找不到 ${symbol} 的歷史數據`);
+        }
+
+        const result = response.data.chart.result[0];
+        
+        if (!result || !result.timestamp) {
+            console.error('❌ Missing timestamp data:', result);
+            throw new Error(`${symbol} 數據格式錯誤`);
+        }
+
+        const timestamps = result.timestamp;
+        const quotes = result.indicators.quote[0];
+
+        if (!quotes) {
+            console.error('❌ Missing quote data:', result.indicators);
+            throw new Error(`${symbol} 缺少價格數據`);
+        }
+
+        console.log(`✅ Got ${timestamps.length} days of data for ${symbol}`);
+
+        return {
+            timestamps: timestamps,
+            open: quotes.open.map(v => v || 0),
+            high: quotes.high.map(v => v || 0),
+            low: quotes.low.map(v => v || 0),
+            close: quotes.close.map(v => v || 0),
+            volume: quotes.volume.map(v => v || 0)
+        };
+
+    } catch (error) {
+        console.error(`❌ Error fetching Yahoo historical data for ${symbol}:`, error.message);
+        
+        // ✅ 詳細錯誤日誌
+        if (error.response) {
+            console.error('API Response Status:', error.response.status);
+            console.error('API Response Data:', error.response.data);
+        }
+        
+        throw new Error(`無法獲取 ${symbol} 的歷史數據：${error.message}`);
     }
+}
 
     /**
      * 獲取實時報價

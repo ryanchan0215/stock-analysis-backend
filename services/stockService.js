@@ -97,18 +97,27 @@ class StockService {
         }
     }
 
-    /**
-     * 獲取 K 線數據（用 Yahoo Finance）
-     */
-    async getCandles(symbol, daysBack = 365) {
-        try {
-            console.log(`📊 Getting candles for ${symbol}...`);
-            return await yahooFinanceService.getHistoricalData(symbol, daysBack);
-        } catch (error) {
-            console.error(`❌ Error getting candles for ${symbol}:`, error.message);
-            throw error;
+   /**
+ * 獲取 K 線數據（用 Yahoo Finance）
+ */
+async getCandles(symbol, daysBack = 365) {
+    try {
+        console.log(`📊 Getting candles for ${symbol}...`);
+        const candles = await yahooFinanceService.getHistoricalData(symbol, daysBack);
+        
+        // ✅ 驗證返回數據
+        if (!candles || !candles.timestamps || candles.timestamps.length === 0) {
+            throw new Error(`${symbol} 返回空數據`);
         }
+        
+        console.log(`✅ Successfully got ${candles.timestamps.length} candles for ${symbol}`);
+        return candles;
+        
+    } catch (error) {
+        console.error(`❌ Error getting candles for ${symbol}:`, error.message);
+        throw new Error(`無法獲取 ${symbol} K 線數據：${error.message}`);
     }
+}
 
     /**
      * 獲取技術指標（用 Yahoo Finance K 線計算）
