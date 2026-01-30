@@ -119,145 +119,167 @@ async getCandles(symbol, daysBack = 365) {
     }
 }
 
-    /**
-     * 獲取技術指標（用 Yahoo Finance K 線計算）
-     */
-    async getTechnicalIndicators(symbol) {
-        try {
-            console.log(`📈 Calculating technical indicators for ${symbol}...`);
-            
-            const candles = await this.getCandles(symbol, 365);
-            const closePrices = candles.close;
-
-            if (!closePrices || closePrices.length < 200) {
-                console.warn(`⚠️ Insufficient data for ${symbol}: only ${closePrices?.length || 0} days`);
-                throw new Error('Insufficient data for technical indicators');
-            }
-
-            // 基礎指標
-            const rsi = technicalIndicators.calculateRSI(closePrices, 14);
-            const ma50 = technicalIndicators.calculateSMA(closePrices, 50);
-            const ma200 = technicalIndicators.calculateSMA(closePrices, 200);
-            const currentPrice = closePrices[closePrices.length - 1];
-
-            // 進階指標
-            const macd = technicalIndicators.calculateMACDFull(closePrices);
-            const bollingerBands = technicalIndicators.calculateBollingerBands(closePrices);
-            const signals = technicalIndicators.detectSignals(closePrices, rsi, macd);
-
-            const trend = technicalIndicators.getTrend(currentPrice, ma50, ma200);
-            const rsiLevel = technicalIndicators.getRSILevel(rsi);
-            const volatility = technicalIndicators.calculateVolatility(closePrices, 20);
-
-            console.log(`✅ Technical indicators calculated for ${symbol}`);
-            console.log(`   RSI: ${rsi.toFixed(2)}, MACD: ${macd?.macd.toFixed(2)}, BB: ${bollingerBands?.middle.toFixed(2)}`);
-
-            return {
-                rsi: parseFloat(rsi.toFixed(2)),
-                rsiLevel,
-                ma50: parseFloat(ma50.toFixed(2)),
-                ma200: parseFloat(ma200.toFixed(2)),
-                trend,
-                volatility: parseFloat(volatility.toFixed(2)),
-                currentPrice: parseFloat(currentPrice.toFixed(2)),
-                dataPoints: closePrices.length,
-                // 新增進階指標
-                macd: macd || null,
-                bollingerBands: bollingerBands || null,
-                signals: signals || []
-            };
-
-        } catch (error) {
-            console.error(`❌ Error calculating indicators for ${symbol}:`, error.message);
-            
-            return {
-                rsi: null,
-                rsiLevel: { level: '未知', signal: '數據不足' },
-                ma50: null,
-                ma200: null,
-                trend: '未知',
-                volatility: null,
-                currentPrice: null,
-                dataPoints: 0,
-                macd: null,
-                bollingerBands: null,
-                signals: [],
-                error: '無法獲取技術指標數據'
-            };
+/**
+ * 獲取技術指標（用 Yahoo Finance K 線計算）
+ */
+async getTechnicalIndicators(symbol) {
+    try {
+        console.log(`📈 Calculating technical indicators for ${symbol}...`);
+        
+        // ✅ 1. 獲取 K 線數據
+        const candles = await this.getCandles(symbol, 365);
+        
+        // ✅ 2. 驗證數據結構
+        if (!candles || !candles.close || !Array.isArray(candles.close)) {
+            console.error(`❌ Invalid candles structure for ${symbol}:`, candles);
+            throw new Error('Invalid candle data structure');
         }
+        
+        const closePrices = candles.close;
+
+        if (closePrices.length < 200) {
+            console.warn(`⚠️ Insufficient data for ${symbol}: only ${closePrices.length} days`);
+            throw new Error(`Insufficient data: need 200+ days, got ${closePrices.length}`);
+        }
+
+        console.log(`✅ Got ${closePrices.length} days of close prices for ${symbol}`);
+
+        // ✅ 3. 計算基礎指標
+        const rsi = technicalIndicators.calculateRSI(closePrices, 14);
+        const ma50 = technicalIndicators.calculateSMA(closePrices, 50);
+        const ma200 = technicalIndicators.calculateSMA(closePrices, 200);
+        const currentPrice = closePrices[closePrices.length - 1];
+
+        console.log(`📊 Basic indicators: RSI=${rsi?.toFixed(2)}, MA50=${ma50?.toFixed(2)}, MA200=${ma200?.toFixed(2)}`);
+
+        // ✅ 4. 檢查基礎指標
+        if (rsi === null || ma50 === null || ma200 === null) {
+            console.error(`❌ Failed to calculate basic indicators for ${symbol}`);
+            throw new Error('Basic indicator calculation failed');
+        }
+
+        // ✅ 5. 計算進階指標
+        const macd = technicalIndicators.calculateMACDFull(closePrices);
+        const bollingerBands = technicalIndicators.calculateBollingerBands(closePrices);
+        const signals = technicalIndicators.detectSignals(closePrices, rsi, macd);
+
+        const trend = technicalIndicators.getTrend(currentPrice, ma50, ma200);
+        const rsiLevel = technicalIndicators.getRSILevel(rsi);
+        const volatility = technicalIndicators.calculateVolatility(closePrices, 20);
+
+        console.log(`✅ Technical indicators calculated for ${symbol}`);
+        console.log(`   RSI: ${rsi.toFixed(2)}, MACD: ${macd?.macd.toFixed(2)}, Trend: ${trend}`);
+
+        return {
+            rsi: parseFloat(rsi.toFixed(2)),
+            rsiLevel,
+            ma50: parseFloat(ma50.toFixed(2)),
+            ma200: parseFloat(ma200.toFixed(2)),
+            trend,
+            volatility: parseFloat(volatility.toFixed(2)),
+            currentPrice: parseFloat(currentPrice.toFixed(2)),
+            dataPoints: closePrices.length,
+            // 新增進階指標
+            macd: macd || null,
+            bollingerBands: bollingerBands || null,
+            signals: signals || []
+        };
+
+    } catch (error) {
+        console.error(`❌ Error calculating indicators for ${symbol}:`, error.message);
+        console.error('Stack trace:', error.stack);
+        
+        // ✅ 返回空指標而非 throw error（避免整個 API 掛掉）
+        return {
+            rsi: null,
+            rsiLevel: { level: '未知', signal: '數據不足' },
+            ma50: null,
+            ma200: null,
+            trend: '未知',
+            volatility: null,
+            currentPrice: null,
+            dataPoints: 0,
+            macd: null,
+            bollingerBands: null,
+            signals: [],
+            error: error.message
+        };
     }
+}
 
-    /**
-     * ✅ 獲取圖表數據（包含 K 線 + 技術指標歷史）
-     */
-    async getChartData(symbol, period = '1y') {
-        try {
-            console.log(`📊 Getting chart data for ${symbol} (${period})...`);
+/**
+ * ✅ 獲取圖表數據（包含 K 線 + 技術指標歷史）
+ */
+async getChartData(symbol, period = '1y') {
+    try {
+        console.log(`📊 Getting chart data for ${symbol} (${period})...`);
 
-            // 1️⃣ 計算需要嘅天數
-            const daysMap = {
-                '1w': 7,
-                '1m': 30,
-                '3m': 90,
-                '6m': 180,
-                '1y': 365,
-                '5y': 1825
-            };
-            const daysBack = daysMap[period] || 365;
+        // 1️⃣ 計算需要嘅天數
+        const daysMap = {
+            '1w': 7,
+            '1m': 30,
+            '3m': 90,
+            '6m': 180,
+            '1y': 365,
+            '5y': 1825
+        };
+        const daysBack = daysMap[period] || 365;
 
-            // 2️⃣ 拎 K 線數據
-            const candles = await yahooFinanceService.getHistoricalData(symbol, daysBack);
-            const { dates, open, high, low, close, volume } = candles;
+        // 2️⃣ 拎 K 線數據
+        const candles = await this.getCandles(symbol, daysBack);
+        
+        // ✅ 正確 destructure（timestamps 唔係 dates）
+        const { timestamps, open, high, low, close, volume } = candles;
 
-            if (!close || close.length === 0) {
-                throw new Error('No price data available');
-            }
+        if (!close || close.length === 0) {
+            throw new Error('No price data available');
+        }
 
-            console.log(`📊 Got ${close.length} candles for ${symbol}`);
+        console.log(`📊 Got ${close.length} candles for ${symbol}`);
 
-            // 3️⃣ 計算技術指標歷史
-            const ma50History = technicalIndicators.calculateSMAHistory(close, 50);
-            const ma200History = technicalIndicators.calculateSMAHistory(close, 200);
-            const macdHistory = technicalIndicators.calculateMACDHistory(close);
+        // 3️⃣ 計算技術指標歷史
+        const ma50History = technicalIndicators.calculateSMAHistory(close, 50);
+        const ma200History = technicalIndicators.calculateSMAHistory(close, 200);
+        const macdHistory = technicalIndicators.calculateMACDHistory(close);
 
-            console.log(`📊 Indicator lengths: MA50=${ma50History.length}, MA200=${ma200History.length}, MACD=${macdHistory.length}`);
+        console.log(`📊 Indicator lengths: MA50=${ma50History.length}, MA200=${ma200History.length}, MACD=${macdHistory.length}`);
 
-            // 4️⃣ 對齊日期（因為 MA/MACD 會比 K 線少）
-            const ma50StartIndex = close.length - ma50History.length;
-            const ma200StartIndex = close.length - ma200History.length;
-            const macdStartIndex = close.length - macdHistory.length;
+        // 4️⃣ 對齊日期（因為 MA/MACD 會比 K 線少）
+        const ma50StartIndex = close.length - ma50History.length;
+        const ma200StartIndex = close.length - ma200History.length;
+        const macdStartIndex = close.length - macdHistory.length;
 
-            // 5️⃣ 組合返回數據
-            return {
-                dates,
-                candles: {
-                    open,
-                    high,
-                    low,
-                    close,
-                    volume
+        // 5️⃣ ✅ 返回正確格式（用 timestamps 而非 dates）
+        return {
+            timestamps,  // ✅ 改呢度
+            candles: {
+                open,
+                high,
+                low,
+                close,
+                volume
+            },
+            indicators: {
+                ma50: {
+                    data: ma50History,
+                    startIndex: ma50StartIndex
                 },
-                indicators: {
-                    ma50: {
-                        data: ma50History,
-                        startIndex: ma50StartIndex
-                    },
-                    ma200: {
-                        data: ma200History,
-                        startIndex: ma200StartIndex
-                    },
-                    macd: {
-                        data: macdHistory,
-                        startIndex: macdStartIndex
-                    }
+                ma200: {
+                    data: ma200History,
+                    startIndex: ma200StartIndex
+                },
+                macd: {
+                    data: macdHistory,
+                    startIndex: macdStartIndex
                 }
-            };
+            }
+        };
 
-        } catch (error) {
-            console.error(`❌ Error getting chart data for ${symbol}:`, error.message);
-            throw error;
-        }
+    } catch (error) {
+        console.error(`❌ Error getting chart data for ${symbol}:`, error.message);
+        throw error;
     }
+}
 }
 
 module.exports = new StockService();
